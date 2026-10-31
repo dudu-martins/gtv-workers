@@ -718,7 +718,7 @@ app.get("/proxy/:usuario/media", async function (req, res) {
 
     const r = await fetch(target, {
       headers: CDN_HEADERS,
-      redirect: "error",
+      redirect: "manual",
       signal: AbortSignal.timeout(15000)
     });
 
