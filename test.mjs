@@ -1,0 +1,37 @@
+
+import assert from 'node:assert/strict';
+import worker from './worker.mjs';
+globalThis.fetch=async(input)=>{
+const u=new URL(String(input));
+if(u.hostname==='raw.githubusercontent.com')return Response.json({});
+if(u.pathname==='/directoryCams')return Response.json({users:[{username:'BrazilUser',countryCode:'br',viewers:12}]});
+if(u.pathname==='/api/front/models')return Response.json({models:[{username:'StripUser',country:'br',status:'public',id:123,previewUrl:'https://static-proxy.strpst.com/test.jpg'}]});
+if(u.pathname.endsWith('/streamInfo'))return Response.json({cdnURL:'https://video.example/live.m3u8'});
+if(u.pathname.includes('/user-ids/'))return Response.json({id:123});
+if(u.pathname.endsWith('/cam'))return Response.json({streamName:'123',user:{previewUrl:'https://static-proxy.strpst.com/test.jpg'}});
+if(u.pathname.endsWith('/master/123_auto.m3u8'))return new Response('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000\n../720/index.m3u8\n');
+if(u.pathname.endsWith('/720/index.m3u8'))return new Response('#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\n#EXTINF:5,\n../segment.ts\n');
+if(u.hostname==='snapshots.xcdnpro.com')return new Response(new Uint8Array([255,216,255,1]),{headers:{'Content-Type':'image/jpeg'}});
+throw Error('Unexpected fetch '+u.href);
+};
+let checks=0;
+const req=async(path,method='GET')=>worker.fetch(new Request('https://gtv.test'+path,{method}),{});
+let r=await req('/health');assert.equal((await r.json()).ok,true);checks++;
+r=await req('/manifest.json');assert.equal((await r.json()).catalogs.length,2);checks++;
+r=await req('/logo.jpeg');assert.equal(r.headers.get('content-type'),'image/jpeg');checks++;
+r=await req('/manifest.json','OPTIONS');assert.equal(r.status,204);checks++;
+r=await req('/manifest.json','HEAD');assert.equal(await r.text(),'');checks++;
+r=await req('/catalog/tv/cam4br.json');assert.equal((await r.json()).metas.length,1);checks++;
+r=await req('/catalog/tv/cam4br/search=missing.json');assert.equal((await r.json()).metas.length,0);checks++;
+r=await req('/catalog/tv/stripchatbr.json');assert.equal((await r.json()).metas[0].id,'stripchat:StripUser');checks++;
+r=await req('/meta/tv/stripchat%3AStripUser.json');assert.equal((await r.json()).meta.name,'StripUser');checks++;
+r=await req('/stream/tv/cam4:BrazilUser.json');assert.equal((await r.json()).streams[0].url,'https://video.example/live.m3u8');checks++;
+r=await req('/stream/tv/stripchat:StripUser.json');assert.ok((await r.json()).streams[0].url.endsWith('/StripUser/master.m3u8'));checks++;
+r=await req('/cam4/imagem/BrazilUser.jpg');assert.equal(r.status,200);checks++;
+r=await req('/stripchat/proxy/StripUser/master.m3u8');const master=await r.text();assert.ok(master.includes('https://gtv.test/stripchat/proxy/StripUser/media?u='));checks++;
+const media=new URL(master.split('\n').find(x=>x.startsWith('https:')));
+r=await req(media.pathname+media.search);const body=await r.text();assert.ok(body.includes('https://edge-hls.doppiocdn.com/hls/123/segment.ts'));assert.ok(body.includes('URI="https://edge-hls.doppiocdn.com/hls/123/720/key.bin"'));checks++;
+r=await req('/stripchat/proxy/X/media?u=https%3A%2F%2Fevil.example%2Fx');assert.equal(r.status,403);checks++;
+r=await req('/catalog/movie/cam4br.json');assert.equal((await r.json()).metas.length,0);checks++;
+r=await req('/missing');assert.equal(r.status,404);checks++;
+console.log(JSON.stringify({checks,upstream:'mocked',liveTest:false}));
